@@ -1,0 +1,12 @@
+# ESP-IDF 编译生成文件夹
+build/
+sdkconfig.old
+sdkconfig.ci
+
+# VS Code 配置（可选忽略）
+.vscode/project_settings.json
+.vscode/c_cpp_properties.json
+
+# 操作系统临时文件
+Thumbs.db
+.DS_Store
