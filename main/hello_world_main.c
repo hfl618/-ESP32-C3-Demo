@@ -1,25 +1,17 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "st7735s.h"
-#include "gfx.h"
+#include "ui.h" // 只需要包含我们的 UI 接口
 
 void app_main(void)
 {
-    printf("ST7735S Clean Migration Start...\n");
+    printf("System Booting...\n");
+    
+    // 启动 UI 模块
+    start_ui_demo();
 
-    ST7735S_Init();
-    setOrientation(R0); // 库默认就是横屏逻辑
-
-    while (1) {
-        printf("Loop: RED\n");
-        setColor(255, 0, 0);
-        fillScreen();
-        vTaskDelay(pdMS_TO_TICKS(1000));
-
-        printf("Loop: BLUE\n");
-        setColor(0, 0, 255);
-        fillScreen();
-        vTaskDelay(pdMS_TO_TICKS(1000));
+    // app_main 可以去做其他核心逻辑，比如处理网络、传感器等
+    while(1) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }

@@ -349,9 +349,8 @@ void drawGlyph(uint16_t xx, uint16_t yy, uint16_t c) {
     for(uint8_t h = 0; h < pfont.gi->pixel_size; h++) {
         uint8_t row = 0;
         for (uint8_t x = 0; x < pfont.gi->bbox.width; x++) {
-            if (x % 8 == 0) {
+            if (x % 8 == 0)
                 row = *glyph++;
-            }
             if (row & ( 1 << (7-(x % 8)))) {
                 ST7735S_Pixel(xx+x, yy+h);
             } else {
