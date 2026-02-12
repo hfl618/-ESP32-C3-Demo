@@ -109,7 +109,7 @@ static uint8_t init_cmd[] = {
     2, VMOFCTR, 0b10000, /* ligthness of black color 0-0x1f */
     2,  GAMSET, 0x08, /* gamma 1, 2, 4, 8 */
 
-    2,  MADCTL, 0b01100000, /* row oder, col order, row colum xchange, vert refr order, rgb/bgr, hor refr order, 0, 0 */
+    2,  MADCTL, 0b01101000, /* BGR mode enabled to fix red/blue swap */
     2,  COLMOD, 0x05, /* 3=12bit, 5=16-bit, 6=18-bit  pixel color mode */
     17, GMCTRP1,0x02, 0x1c, 0x07, 0x12, 0x37, 0x32, 0x29, 0x2c,
                 0x29, 0x25, 0x2b, 0x39, 0x00, 0x01, 0x03, 0x10,
