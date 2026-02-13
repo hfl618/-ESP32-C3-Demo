@@ -11,8 +11,6 @@
 #include "bsp_board.h"
 #include "driver/gpio.h"
 
-static const char *TAG = "APP_MAIN";
-
 void my_disp_flush(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map) {
     uint32_t px_count = lv_area_get_width(area) * lv_area_get_height(area);
     lv_draw_sw_rgb565_swap(px_map, px_count);  
@@ -57,15 +55,9 @@ void gui_task(void *pvParameters) {
 
     ui_init();
 
-    int count = 0;
     while(1) {
         lv_timer_handler();
         lv_tick_inc(10); 
-        if (count++ % 100 == 0) {
-            extern volatile int pcnt_count;
-            int sw_level = gpio_get_level(5); // BSP_EC11_SW_PIN
-            ESP_LOGI(TAG, "HB:%d | Enc:%d | SW:%d", count/100, pcnt_count, sw_level);
-        }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }

@@ -39,10 +39,7 @@ void ui_change_page(ui_page_t page) {
             break;
     }
 
-    // 4. 打印组内对象数量，确认控件是否成功加入
-    ESP_LOGI("UI_MGR", "Group obj count: %d", lv_group_get_obj_count(lv_group_get_default()));
-
-    // 5. 修复编码器：强制聚焦新页面的第一个对象
+    // 修复编码器：强制聚焦新页面的第一个对象
     lv_obj_t * first_child = lv_obj_get_child(content_area, 0);
     if(first_child) {
         // 如果页面里还有子容器（如 page_main 里的 cont），则聚焦子容器的第一个孩子

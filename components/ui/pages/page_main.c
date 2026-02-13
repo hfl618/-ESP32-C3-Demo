@@ -36,11 +36,8 @@ static void item_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     int index = (intptr_t)lv_event_get_user_data(e);
 
-    if(code == LV_EVENT_FOCUSED || code == LV_EVENT_CLICKED || code == LV_EVENT_PRESSED) {
-        ESP_LOGI("UI_MAIN", "Item %d event: %d", index, code);
-    }
-
     if(code == LV_EVENT_FOCUSED) {
+        ESP_LOGI("UI_MAIN", "Focused Item: %d", index);
         // 选中：显示圆角背景 + 精致圆环
         lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(obj, lv_color_hex(0x333333), 0); 
