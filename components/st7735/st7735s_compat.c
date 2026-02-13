@@ -1,16 +1,17 @@
 #include "st7735s_compat.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
-#include "driver/ledc.h" // 【新增】引入 LED 控制器头文件
+#include "driver/ledc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
+#include "bsp_board.h"
 
-#define PIN_NUM_MOSI 6
-#define PIN_NUM_CLK  4
-#define PIN_NUM_DC   3
-#define PIN_NUM_RST  10
-#define PIN_NUM_BCKL 2  // 【新增】定义背光引脚为 GPIO 2
+#define PIN_NUM_MOSI BSP_LCD_SDA_PIN
+#define PIN_NUM_CLK  BSP_LCD_SCL_PIN
+#define PIN_NUM_DC   BSP_LCD_DC_PIN
+#define PIN_NUM_RST  BSP_LCD_RES_PIN
+#define PIN_NUM_BCKL BSP_LCD_BLK_PIN
 
 static spi_device_handle_t spi;
 
@@ -27,7 +28,7 @@ void SPI_Init(void) {
     spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
 
     spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = 5 * 1000 * 1000, 
+        .clock_speed_hz = 10 * 1000 * 1000, 
         .mode = 0,
         .spics_io_num = -1, 
         .queue_size = 7,

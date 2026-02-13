@@ -10,6 +10,7 @@
  */
 
 #include "ui_entry.h"
+#include "esp_log.h"
 
 /* 内容区域容器句柄 */
 static lv_obj_t * content_area = NULL;
@@ -21,12 +22,12 @@ static lv_obj_t * content_area = NULL;
 void ui_change_page(ui_page_t page) {
     if(!content_area) return;
 
-    // 1. 销毁 content_area 下的所有子对象 (自动释放内存)
-    lv_obj_clean(content_area);
-    
-    // 2. 核心：清空默认组中的所有对象。
+    // 1. 核心：清空默认组中的所有对象。
     // 如果不清理，转动编码器时会尝试聚焦已经消失的旧对象，导致系统奔溃。
     lv_group_remove_all_objs(lv_group_get_default());
+
+    // 2. 销毁 content_area 下的所有子对象 (自动释放内存)
+    lv_obj_clean(content_area);
 
     // 3. 根据目标枚举调用对应的工厂函数
     switch(page) {
@@ -36,6 +37,23 @@ void ui_change_page(ui_page_t page) {
         case UI_PAGE_SETTINGS:
             page_settings_init(content_area);
             break;
+    }
+
+    // 4. 打印组内对象数量，确认控件是否成功加入
+    ESP_LOGI("UI_MGR", "Group obj count: %d", lv_group_get_obj_count(lv_group_get_default()));
+
+    // 5. 修复编码器：强制聚焦新页面的第一个对象
+    lv_obj_t * first_child = lv_obj_get_child(content_area, 0);
+    if(first_child) {
+        // 如果页面里还有子容器（如 page_main 里的 cont），则聚焦子容器的第一个孩子
+        if(lv_obj_get_child_count(first_child) > 0) {
+            lv_obj_t * target = lv_obj_get_child(first_child, 0);
+            lv_group_focus_obj(target);
+            lv_obj_scroll_to_view(target, LV_ANIM_OFF);
+        } else {
+            lv_group_focus_obj(first_child);
+            lv_obj_scroll_to_view(first_child, LV_ANIM_OFF);
+        }
     }
 }
 
