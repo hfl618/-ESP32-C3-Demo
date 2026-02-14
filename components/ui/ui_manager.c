@@ -80,7 +80,7 @@ void ui_init(void) {
     ui_change_page(UI_PAGE_MAIN);
 
     // D. 模拟系统初始业务状态 (生产环境中应由底层驱动触发)
-    ui_battery_set_level(10);         // 测试：红色低电量
-    ui_status_bar_set_wifi_conn(true); // 测试：蓝色 WiFi 已连
-    ui_status_bar_set_bt_conn(false); // 测试：红色蓝牙未连
+    ui_battery_set_level(100);         // 测试：红色低电量
+    //ui_status_bar_set_wifi_conn(true); // 测试：蓝色 WiFi 已连
+    //ui_status_bar_set_bt_conn(false); // 测试：红色蓝牙未连
 }

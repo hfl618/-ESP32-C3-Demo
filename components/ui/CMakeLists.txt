@@ -1,10 +1,6 @@
-file(GLOB_RECURSE SOURCES 
-    "ui_manager.c"
-    "components/*.c"
-    "pages/*.c"
-    "icon/*.c"
-)
+# 自动搜索所有子目录下的 .c 文件
+file(GLOB_RECURSE SOURCES "*.c")
 
 idf_component_register(SRCS ${SOURCES}
-                    INCLUDE_DIRS "." "components" "pages" "icon"
-                    REQUIRES st7735 lvgl ec11)
+                    INCLUDE_DIRS "."
+                    REQUIRES lvgl common wifi_service)
