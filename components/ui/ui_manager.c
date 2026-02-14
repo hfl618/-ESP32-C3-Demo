@@ -14,6 +14,14 @@
 
 /* 内容区域容器句柄 */
 static lv_obj_t * content_area = NULL;
+static ui_page_t current_ui_page = UI_PAGE_MAIN;
+
+/**
+ * @brief 获取当前页面枚举
+ */
+ui_page_t ui_get_current_page(void) {
+    return current_ui_page;
+}
 
 /**
  * @brief 执行页面切换
@@ -21,6 +29,12 @@ static lv_obj_t * content_area = NULL;
  */
 void ui_change_page(ui_page_t page) {
     if(!content_area) return;
+    
+    // 如果目标页面就是当前页面，则跳过切换，防止闪烁或黑屏
+    if (page == current_ui_page && lv_obj_get_child_count(content_area) > 0) {
+        return;
+    }
+    current_ui_page = page;
 
     // 1. 核心：清空默认组中的所有对象。
     // 如果不清理，转动编码器时会尝试聚焦已经消失的旧对象，导致系统奔溃。

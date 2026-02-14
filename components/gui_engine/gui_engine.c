@@ -50,8 +50,65 @@ static void disp_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t *
 }
 
 static void indev_read_cb(lv_indev_t * indev, lv_indev_data_t * data) {
+    static uint32_t last_phys_press_time = 0;
+    static uint32_t last_phys_release_time = 0;
+    static bool last_phys_state = false;
+    static int phys_click_count = 0;
+    static bool lv_is_pressed = false;
+    static uint32_t lv_press_start_time = 0;
+
     data->enc_diff = ec11_get_delta();
-    data->state = ec11_is_pressed() ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
+    bool phys_pressed = ec11_is_pressed();
+    uint32_t now = get_tick_cb();
+
+    // 如果当前正在模拟按下状态，确保它至少持续 30ms，以便 LVGL 任务能捕捉到
+    if (lv_is_pressed && phys_click_count == 0 && !phys_pressed) {
+        if (now - lv_press_start_time > 30) {
+            lv_is_pressed = false;
+        }
+    }
+
+    // 1. 物理按键状态机
+    if (phys_pressed && !last_phys_state) { // 物理按下
+        phys_click_count++;
+        last_phys_press_time = now;
+        if (phys_click_count == 2) { 
+            if (now - last_phys_release_time < 400) { // 双击判定窗口缩短至 400ms
+                if (ui_get_current_page() != UI_PAGE_MAIN) {
+                    ESP_LOGI(TAG, "Double click! Returning to main.");
+                    sys_msg_t msg = { .source = MSG_SOURCE_UI, .event = 0xFF };
+                    QueueHandle_t queue = wifi_service_get_queue();
+                    if (queue) xQueueSend(queue, &msg, 0);
+                }
+                phys_click_count = 0;
+                lv_is_pressed = false; 
+            } else {
+                phys_click_count = 1; 
+            }
+        }
+    } else if (!phys_pressed && last_phys_state) { // 物理释放
+        last_phys_release_time = now;
+        if (lv_is_pressed) lv_is_pressed = false;
+    }
+    last_phys_state = phys_pressed;
+
+    // 2. 优化后的单击判定
+    if (phys_click_count == 1) {
+        if (!phys_pressed) { 
+            // 只要物理释放超过 150ms 没再次按下，立即触发单击
+            if (now - last_phys_release_time > 150) {
+                lv_is_pressed = true;
+                lv_press_start_time = now;
+                phys_click_count = 0; 
+            }
+        } else if (now - last_phys_press_time > 500) { // 长按依然保持 500ms
+            lv_is_pressed = true;
+            lv_press_start_time = now;
+            phys_click_count = 0;
+        }
+    }
+
+    data->state = lv_is_pressed ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
 }
 
 static void gui_msg_dispatcher(QueueHandle_t queue) {
@@ -63,11 +120,15 @@ static void gui_msg_dispatcher(QueueHandle_t queue) {
                 else if (msg.event == WIFI_EVT_DISCONNECTED) ui_status_bar_set_wifi_conn(false);
                 else if (msg.event == WIFI_EVT_TIME_SYNCED) {
                     ESP_LOGI(TAG, "NTP Synced. Updating Clock.");
-                    update_system_clock(); // 逻辑处理后推送给视图
+                    update_system_clock();
                 }
                 break;
             case MSG_SOURCE_UI:
                 if (msg.event == UI_EVT_MAIN_WIFI_CONNECT) wifi_service_connect();
+                else if (msg.event == 0xFF) { // 处理返回主页的消息
+                    ESP_LOGI(TAG, "Async executing: ui_change_page(UI_PAGE_MAIN)");
+                    ui_change_page(UI_PAGE_MAIN);
+                }
                 break;
             default: break;
         }

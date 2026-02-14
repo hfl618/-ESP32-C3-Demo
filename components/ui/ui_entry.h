@@ -20,6 +20,7 @@ typedef enum {
 
 void ui_init(void);
 void ui_change_page(ui_page_t page);
+ui_page_t ui_get_current_page(void);
 
 void ui_status_bar_create(lv_obj_t * parent);
 void ui_battery_set_level(int level);
