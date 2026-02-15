@@ -60,9 +60,12 @@ typedef struct {
     int font_size_level;
     wifi_db_t wifi_db; // 缓存的真实 WiFi 列表数据
     char connected_ssid[32]; // 【镜像】当前已成功连接的热点名字
+    char connected_ip[16];   // 【新增】镜像当前连接的 IP
+    int selected_wifi_idx;   // 【新增】当前正在查看或尝试连接的 WiFi 索引
 } ui_state_t;
 
 ui_state_t * ui_get_state(void);
+void ui_refresh_current_page(void);
 
 /* --- 硬件接口 --- */
 void ui_port_set_brightness(int value);

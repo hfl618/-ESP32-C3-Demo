@@ -25,6 +25,8 @@ esp_err_t wifi_service_init(void);
 /* 开启 WiFi 联网（自动关蓝牙） */
 void wifi_service_on(void);
 
+
+
 /* 彻底关闭 WiFi 联网并释放射频 */
 void wifi_service_off(void);
 
@@ -35,5 +37,8 @@ void wifi_service_scan(void);
 void wifi_service_print_stored_configs(void);
 esp_err_t wifi_service_save_db(wifi_db_t *db);
 esp_err_t wifi_service_load_db(wifi_db_t *db);
+
+/* 连接到指定的 WiFi */
+void wifi_service_connect_to(const char *ssid, const char *password);
 
 #endif

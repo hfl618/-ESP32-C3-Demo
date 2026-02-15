@@ -32,6 +32,7 @@ typedef enum {
     UI_EVT_SET_BT_CONFIG,
     UI_EVT_SET_BRIGHTNESS,
     UI_EVT_SET_VOLUME,
+    UI_EVT_WIFI_CONNECT_BY_IDX,
     UI_EVT_SET_SYSTEM_INFO,
 } ui_evt_id_t;
 

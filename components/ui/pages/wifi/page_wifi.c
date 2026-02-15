@@ -48,7 +48,12 @@ static void wifi_switch_event_cb(lv_event_t * e) {
 }
 
 static void wifi_item_event_cb(lv_event_t * e) {
-    if(lv_event_get_code(e) == LV_EVENT_CLICKED) ui_change_page(UI_PAGE_WIFI_INFO);
+    if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        intptr_t idx = (intptr_t)lv_event_get_user_data(e);
+        ui_get_state()->selected_wifi_idx = (int)idx;
+        ui_post_event(UI_EVT_WIFI_CONNECT_BY_IDX, idx);
+        ui_change_page(UI_PAGE_WIFI_INFO);
+    }
 }
 
 /**
@@ -56,7 +61,7 @@ static void wifi_item_event_cb(lv_event_t * e) {
  * 
  * @param is_active 是否匹配全局镜像中的“已连接 SSID”
  */
-static void create_wifi_item(lv_obj_t * parent, const char * name, bool is_active) {
+static void create_wifi_item(lv_obj_t * parent, const char * name, bool is_active, int idx) {
     if(!name || name[0] == '\0') return;
     
     lv_obj_t * btn = lv_btn_create(parent);
@@ -80,7 +85,7 @@ static void create_wifi_item(lv_obj_t * parent, const char * name, bool is_activ
     lv_obj_set_style_text_font(lbl, ui_get_app_font(), 0);
     lv_obj_center(lbl);
     
-    lv_obj_add_event_cb(btn, wifi_item_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(btn, wifi_item_event_cb, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
     lv_group_add_obj(lv_group_get_default(), btn);
 }
 
@@ -131,7 +136,7 @@ void page_wifi_init(lv_obj_t * parent) {
         bool is_active = (strlen(state->connected_ssid) > 0 && 
                          strcmp(state->wifi_db.profiles[i].ssid, state->connected_ssid) == 0);
         
-        create_wifi_item(cont, state->wifi_db.profiles[i].ssid, is_active);
+        create_wifi_item(cont, state->wifi_db.profiles[i].ssid, is_active, i);
     }
 
     lv_obj_add_flag(cont, LV_OBJ_FLAG_CLICKABLE);

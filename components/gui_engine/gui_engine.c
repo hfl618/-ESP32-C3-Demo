@@ -67,24 +67,34 @@ static void gui_msg_dispatcher(QueueHandle_t queue) {
                         strncpy(state->connected_ssid, (char*)ap_info.ssid, 32);
                     }
 
-                    if (ui_get_current_page() == UI_PAGE_WIFI) {
-                        ui_change_page(UI_PAGE_WIFI);
+                    // 获取并同步 IP 地址
+                    esp_netif_ip_info_t ip_info;
+                    esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+                    if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+                        esp_ip4addr_ntoa(&ip_info.ip, state->connected_ip, 16);
+                    }
+
+                    ui_page_t cur = ui_get_current_page();
+                    if (cur == UI_PAGE_WIFI || cur == UI_PAGE_WIFI_INFO) {
+                        ui_refresh_current_page();
                     }
                 }
                 else if (msg.event == WIFI_EVT_DISCONNECTED) {
                     // 清空镜像状态
                     memset(state->connected_ssid, 0, sizeof(state->connected_ssid));
+                    memset(state->connected_ip, 0, sizeof(state->connected_ip));
 
-                    if (state->wifi_en) {
-                        ui_status_bar_set_wifi_error();
-                        lv_timer_t * t = lv_timer_create(wifi_error_timer_cb, 5000, NULL);
-                        lv_timer_set_repeat_count(t, 1);
-                    } else {
-                        ui_status_bar_set_wifi_conn(false);
-                    }
-                    // 刷新页面状态
-                    if (ui_get_current_page() == UI_PAGE_WIFI) {
-                        ui_change_page(UI_PAGE_WIFI);
+                    // 连接失败或断开时，自动关闭开关
+                    state->wifi_en = false;
+                    wifi_service_off();
+
+                    ui_status_bar_set_wifi_error();
+                    lv_timer_t * t = lv_timer_create(wifi_error_timer_cb, 5000, NULL);
+                    lv_timer_set_repeat_count(t, 1);
+                    
+                    ui_page_t cur = ui_get_current_page();
+                    if (cur == UI_PAGE_WIFI || cur == UI_PAGE_WIFI_INFO) {
+                        ui_refresh_current_page();
                     }
                 }
                 else if (msg.event == WIFI_EVT_TIME_SYNCED) {
@@ -140,6 +150,14 @@ static void gui_msg_dispatcher(QueueHandle_t queue) {
                 }
                 else if (msg.event == UI_EVT_SET_BACK_TO_PREV) {
                     ui_back_to_prev();
+                }
+                else if (msg.event == UI_EVT_WIFI_CONNECT_BY_IDX) {
+                    int idx = (int)(intptr_t)msg.data;
+                    state->wifi_en = true;
+                    state->selected_wifi_idx = idx;
+                    ui_status_bar_set_wifi_connecting();
+                    wifi_service_connect_to(state->wifi_db.profiles[idx].ssid, 
+                                           state->wifi_db.profiles[idx].password);
                 }
                 break;
             default: break;

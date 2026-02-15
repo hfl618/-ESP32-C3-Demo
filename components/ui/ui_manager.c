@@ -228,6 +228,10 @@ void ui_back_to_prev(void) {
     }
 }
 
+void ui_refresh_current_page(void) {
+    _ui_execute_page_change(page_stack[stack_ptr]);
+}
+
 /**
  * @brief UI 核心初始化
  */

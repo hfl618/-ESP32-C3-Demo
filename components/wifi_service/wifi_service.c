@@ -54,23 +54,23 @@ void wifi_service_on(void) {
         wifi_started = true;
     }
 
-    wifi_config_t wifi_config = {
-        .sta = {
-            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
-        },
-    };
-    const char *target_ssid = (g_wifi_db.count > 0) ? g_wifi_db.profiles[0].ssid : "hhh";
-    const char *target_pass = (g_wifi_db.count > 0) ? g_wifi_db.profiles[0].password : "12345678";
+    // 如果数据库中有配置，则尝试连接第一个（自动重连逻辑）
+    if (g_wifi_db.count > 0) {
+        wifi_config_t wifi_config = {
+            .sta = {
+                .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+            },
+        };
+        strncpy((char*)wifi_config.sta.ssid, g_wifi_db.profiles[0].ssid, 32);
+        strncpy((char*)wifi_config.sta.password, g_wifi_db.profiles[0].password, 64);
 
-    strncpy((char*)wifi_config.sta.ssid, target_ssid, 32);
-    strncpy((char*)wifi_config.sta.password, target_pass, 64);
-
-    ESP_LOGI(TAG, "Connect Start...");
-    debug_print_hex("SSID", target_ssid);
-    
-    esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-    esp_wifi_set_max_tx_power(34); 
-    esp_wifi_connect();
+        ESP_LOGI(TAG, "Auto-connecting to %s...", g_wifi_db.profiles[0].ssid);
+        esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+        esp_wifi_set_max_tx_power(34); // 恢复硬件特定功率设置
+        esp_wifi_connect();
+    } else {
+        ESP_LOGI(TAG, "WiFi Power On (No profiles stored)");
+    }
 }
 
 void wifi_service_off(void) {
@@ -78,6 +78,30 @@ void wifi_service_off(void) {
     esp_wifi_stop();
     wifi_started = false;
     is_connected = false;
+}
+
+void wifi_service_connect_to(const char *ssid, const char *password) {
+    ble_service_off(); 
+
+    if (!wifi_started) {
+        ESP_ERROR_CHECK(esp_wifi_start());
+        esp_wifi_set_ps(WIFI_PS_NONE);
+        wifi_started = true;
+    }
+
+    wifi_config_t wifi_config = {
+        .sta = {
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+        },
+    };
+    strncpy((char*)wifi_config.sta.ssid, ssid, 32);
+    strncpy((char*)wifi_config.sta.password, password, 64);
+
+    ESP_LOGI(TAG, "Connecting to %s...", ssid);
+    esp_wifi_disconnect(); 
+    esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    esp_wifi_set_max_tx_power(34); // 恢复硬件特定功率设置
+    esp_wifi_connect();
 }
 
 int wifi_service_get_rssi(void) {
