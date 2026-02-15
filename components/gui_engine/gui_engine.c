@@ -1,3 +1,8 @@
+/**
+ * @file gui_engine.c
+ * @brief GUI 引擎核心：负责信号分发、输入驱动及 UI 逻辑中枢
+ */
+
 #include "gui_engine.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -9,6 +14,8 @@
 #include "ec11.h"
 #include "ui_entry.h"
 #include "wifi_service.h"
+#include "esp_wifi.h"
+#include "ble_service.h"
 #include "sys_msg.h"
 #include "driver/gpio.h"
 #include <time.h>
@@ -19,20 +26,124 @@ static uint32_t get_tick_cb(void) {
     return (uint32_t)(esp_timer_get_time() / 1000);
 }
 
-/* --- [核心逻辑] 处理时间并推送给 UI --- */
+/* --- [内部逻辑] 处理系统时钟更新 --- */
 static void update_system_clock(void) {
     time_t now;
     struct tm timeinfo;
     time(&now);
     localtime_r(&now, &timeinfo);
     
-    // 如果年份太小，说明还没对过时，显示横线
     if (timeinfo.tm_year < (2020 - 1900)) {
         ui_status_bar_set_time("--:--");
     } else {
         char buf[16];
         sprintf(buf, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
         ui_status_bar_set_time(buf);
+    }
+}
+
+/* --- [内部逻辑] WiFi 错误显示超时回调 --- */
+static void wifi_error_timer_cb(lv_timer_t * t) {
+    ui_status_bar_set_wifi_conn(false); 
+}
+
+/**
+ * @brief 核心信号分发器
+ */
+static void gui_msg_dispatcher(QueueHandle_t queue) {
+    sys_msg_t msg;
+    ui_state_t * state = ui_get_state();
+    static bool last_bt_st = false; 
+
+    while (xQueueReceive(queue, &msg, 0) == pdTRUE) {
+        switch (msg.source) {
+            case MSG_SOURCE_WIFI:
+                if (msg.event == WIFI_EVT_GOT_IP) {
+                    ui_status_bar_set_wifi_conn(true);
+                    
+                    // --- 核心同步逻辑：将硬件层状态同步到 UI 全局镜像 ---
+                    wifi_ap_record_t ap_info;
+                    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+                        strncpy(state->connected_ssid, (char*)ap_info.ssid, 32);
+                    }
+
+                    if (ui_get_current_page() == UI_PAGE_WIFI) {
+                        ui_change_page(UI_PAGE_WIFI);
+                    }
+                }
+                else if (msg.event == WIFI_EVT_DISCONNECTED) {
+                    // 清空镜像状态
+                    memset(state->connected_ssid, 0, sizeof(state->connected_ssid));
+
+                    if (state->wifi_en) {
+                        ui_status_bar_set_wifi_error();
+                        lv_timer_t * t = lv_timer_create(wifi_error_timer_cb, 5000, NULL);
+                        lv_timer_set_repeat_count(t, 1);
+                    } else {
+                        ui_status_bar_set_wifi_conn(false);
+                    }
+                    // 刷新页面状态
+                    if (ui_get_current_page() == UI_PAGE_WIFI) {
+                        ui_change_page(UI_PAGE_WIFI);
+                    }
+                }
+                else if (msg.event == WIFI_EVT_TIME_SYNCED) {
+                    update_system_clock();
+                }
+                break;
+
+            case MSG_SOURCE_UI:
+                if (msg.event == UI_EVT_MAIN_WIFI_CONNECT) {
+                    bool en = (bool)(intptr_t)msg.data;
+                    state->wifi_en = en;
+                    if (en) {
+                        state->bt_en = false;
+                        last_bt_st = false;
+                        ui_status_bar_set_bt_conn(false);
+                        ble_service_off();
+                        ui_status_bar_set_wifi_connecting();
+                        wifi_service_on();
+                    } else {
+                        wifi_service_off();
+                        ui_status_bar_set_wifi_conn(false);
+                    }
+                }
+                else if (msg.event == UI_EVT_SET_BT_CONFIG) {
+                    bool en = (bool)(intptr_t)msg.data;
+                    if (en == last_bt_st) break; 
+                    last_bt_st = en;
+                    state->bt_en = en;
+
+                    if (en) {
+                        state->wifi_en = false; 
+                        ui_status_bar_set_wifi_conn(false);
+                        wifi_service_off();
+                        vTaskDelay(pdMS_TO_TICKS(150)); // 略微增加延时确保射频彻底切换
+                        ui_status_bar_set_bt_connecting();
+                        ble_service_on();
+                    } else {
+                        ble_service_off();
+                        ui_status_bar_set_bt_conn(false);
+                    }
+                }
+                else if (msg.event == UI_EVT_SET_BRIGHTNESS) {
+                    int b = (int)(intptr_t)msg.data;
+                    ESP_LOGI(TAG, "Hardware API: Backlight -> %d%%", b);
+                }
+                else if (msg.event == UI_EVT_SET_VOLUME) {
+                    int v = (int)(intptr_t)msg.data;
+                    ESP_LOGI(TAG, "Hardware API: Volume -> %d%%", v);
+                }
+                else if (msg.event == UI_EVT_SET_SYSTEM_INFO) {
+                    bool en = (bool)(intptr_t)msg.data;
+                    ui_status_bar_set_visible(en);
+                }
+                else if (msg.event == UI_EVT_SET_BACK_TO_PREV) {
+                    ui_back_to_prev();
+                }
+                break;
+            default: break;
+        }
     }
 }
 
@@ -61,24 +172,17 @@ static void indev_read_cb(lv_indev_t * indev, lv_indev_data_t * data) {
     bool phys_pressed = ec11_is_pressed();
     uint32_t now = get_tick_cb();
 
-    // 如果当前正在模拟按下状态，确保它至少持续 30ms，以便 LVGL 任务能捕捉到
     if (lv_is_pressed && phys_click_count == 0 && !phys_pressed) {
-        if (now - lv_press_start_time > 30) {
-            lv_is_pressed = false;
-        }
+        if (now - lv_press_start_time > 30) lv_is_pressed = false;
     }
 
-    // 1. 物理按键状态机
-    if (phys_pressed && !last_phys_state) { // 物理按下
+    if (phys_pressed && !last_phys_state) { 
         phys_click_count++;
         last_phys_press_time = now;
         if (phys_click_count == 2) { 
-            if (now - last_phys_release_time < 400) { // 双击判定窗口缩短至 400ms
+            if (now - last_phys_release_time < 400) { 
                 if (ui_get_current_page() != UI_PAGE_MAIN) {
-                    ESP_LOGI(TAG, "Double click! Returning to main.");
-                    sys_msg_t msg = { .source = MSG_SOURCE_UI, .event = 0xFF };
-                    QueueHandle_t queue = wifi_service_get_queue();
-                    if (queue) xQueueSend(queue, &msg, 0);
+                    sys_msg_send(MSG_SOURCE_UI, UI_EVT_SET_BACK_TO_PREV, NULL);
                 }
                 phys_click_count = 0;
                 lv_is_pressed = false; 
@@ -86,55 +190,26 @@ static void indev_read_cb(lv_indev_t * indev, lv_indev_data_t * data) {
                 phys_click_count = 1; 
             }
         }
-    } else if (!phys_pressed && last_phys_state) { // 物理释放
+    } else if (!phys_pressed && last_phys_state) { 
         last_phys_release_time = now;
         if (lv_is_pressed) lv_is_pressed = false;
     }
     last_phys_state = phys_pressed;
 
-    // 2. 优化后的单击判定
     if (phys_click_count == 1) {
         if (!phys_pressed) { 
-            // 只要物理释放超过 150ms 没再次按下，立即触发单击
             if (now - last_phys_release_time > 150) {
                 lv_is_pressed = true;
                 lv_press_start_time = now;
                 phys_click_count = 0; 
             }
-        } else if (now - last_phys_press_time > 500) { // 长按依然保持 500ms
+        } else if (now - last_phys_press_time > 500) { 
             lv_is_pressed = true;
             lv_press_start_time = now;
             phys_click_count = 0;
         }
     }
-
     data->state = lv_is_pressed ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
-}
-
-static void gui_msg_dispatcher(QueueHandle_t queue) {
-    sys_msg_t msg;
-    while (xQueueReceive(queue, &msg, 0) == pdTRUE) {
-        switch (msg.source) {
-            case MSG_SOURCE_WIFI:
-                if (msg.event == WIFI_EVT_GOT_IP) ui_status_bar_set_wifi_conn(true);
-                else if (msg.event == WIFI_EVT_DISCONNECTED) ui_status_bar_set_wifi_conn(false);
-                else if (msg.event == WIFI_EVT_TIME_SYNCED) {
-                    ESP_LOGI(TAG, "NTP Synced. Updating Clock.");
-                    update_system_clock();
-                }
-                break;
-            case MSG_SOURCE_UI:
-                if (msg.event == UI_EVT_MAIN_WIFI_CONNECT) {
-                    wifi_service_on(); // 开启 WiFi 会自动内部关闭蓝牙
-                }
-                else if (msg.event == 0xFF) { // 处理返回主页的消息
-                    ESP_LOGI(TAG, "Async executing: ui_change_page(UI_PAGE_MAIN)");
-                    ui_change_page(UI_PAGE_MAIN);
-                }
-                break;
-            default: break;
-        }
-    }
 }
 
 static void gui_task(void *pvParameters) {
@@ -160,26 +235,24 @@ static void gui_task(void *pvParameters) {
 
     ui_init();
 
+    wifi_service_load_db(&(ui_get_state()->wifi_db));
+
     QueueHandle_t sys_queue = wifi_service_get_queue();
     uint32_t last_time_update = 0;
 
     while(1) {
         gui_msg_dispatcher(sys_queue); 
         lv_timer_handler();            
-        
-        // 每 30 秒刷一次时钟，每 10 秒打印一次心跳
         uint32_t now = lv_tick_get();
         if (now - last_time_update > 30000) {
             update_system_clock(); 
             last_time_update = now;
         }
-        
         static uint32_t last_heartbeat = 0;
-        if (now - last_heartbeat > 10000) {
+        if (now - last_heartbeat > 60000) {
             ESP_LOGI(TAG, "GUI Task Alive");
             last_heartbeat = now;
         }
-
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }

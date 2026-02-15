@@ -12,15 +12,13 @@
 #define WIFI_DB_NAMESPACE "storage"
 
 static const char *TAG = "WIFI_SVC";
-static QueueHandle_t sys_event_queue = NULL;
 static bool wifi_started = false;
 static bool is_connected = false;
 static wifi_db_t g_wifi_db = {0};
 static int retry_cnt = 0;
 
 static void send_sys_msg(msg_source_t src, int evt) {
-    sys_msg_t msg = { .source = src, .event = evt, .data = NULL };
-    if (sys_event_queue) xQueueSend(sys_event_queue, &msg, 0);
+    sys_msg_send(src, evt, NULL);
 }
 
 /* --- [调试] 以 HEX 格式打印字符串，用于检查隐藏字符 --- */
@@ -113,6 +111,8 @@ esp_err_t wifi_service_load_db(wifi_db_t *db) {
 
 static void time_sync_notification_cb(struct timeval *tv) {
     ESP_LOGI(TAG, "Time Synced!");
+    // 发送对时成功信号，触发 UI 立即刷新时间显示
+    send_sys_msg(MSG_SOURCE_WIFI, WIFI_EVT_TIME_SYNCED);
 }
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
@@ -123,10 +123,14 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
         wifi_event_sta_disconnected_t* evt = (wifi_event_sta_disconnected_t*) event_data;
         ESP_LOGW(TAG, "Link Down. Reason:%d", evt->reason);
         is_connected = false;
-        send_sys_msg(MSG_SOURCE_WIFI, WIFI_EVT_DISCONNECTED);
-        if (wifi_started && retry_cnt < 10) {
+        
+        if (wifi_started && retry_cnt < 5) {
             retry_cnt++;
             esp_wifi_connect();
+        } else if (retry_cnt >= 5) {
+            // 达到重试上限，发送彻底失败信号
+            send_sys_msg(MSG_SOURCE_WIFI, WIFI_EVT_DISCONNECTED);
+            retry_cnt = 0; // 重置计数
         }
     } 
     else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
@@ -148,7 +152,6 @@ esp_err_t wifi_service_init(void) {
     }
     wifi_service_load_db(&g_wifi_db);
     wifi_service_print_stored_configs();
-    sys_event_queue = xQueueCreate(10, sizeof(sys_msg_t));
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
@@ -159,4 +162,4 @@ esp_err_t wifi_service_init(void) {
     return ESP_OK;
 }
 
-QueueHandle_t wifi_service_get_queue(void) { return sys_event_queue; }
+QueueHandle_t wifi_service_get_queue(void) { return g_sys_msg_queue; }

@@ -1,29 +1,39 @@
 /**
  * @file ui_status_bar.c
- * @brief 状态栏组件实现 - 增加强制布局刷新
+ * @brief 状态栏组件：高度模块化的图标管理逻辑
  */
 
 #include "../ui_entry.h"
 #include <stdio.h>
 
+/* --- 图标视觉状态定义 --- */
+typedef enum {
+    ICON_STATE_HIDDEN,      // 隐藏
+    ICON_STATE_CONNECTING,  // 连接中（默认色闪烁）
+    ICON_STATE_CONNECTED,   // 已连接（默认色常亮）
+    ICON_STATE_ERROR        // 错误（红色闪烁）
+} icon_visual_state_t;
+
 static lv_obj_t * status_bar_obj = NULL;
-static lv_obj_t * wifi_icon_cont;
-static lv_obj_t * wifi_icon_label;
-static lv_obj_t * bt_icon_cont;
-static lv_obj_t * bt_icon_label;
+static lv_obj_t * wifi_icon_cont, * wifi_icon_label;
+static lv_obj_t * bt_icon_cont,   * bt_icon_label;
 static lv_obj_t * battery_bar;
 static lv_obj_t * time_label; 
 
+/* --- [内部辅助] 透明度渐变动画回调 --- */
 static void anim_opa_cb(void * var, int32_t v) {
     lv_obj_set_style_opa(var, v, 0);
 }
 
+/**
+ * @brief 通用：开启闪烁动画
+ */
 static void start_blink(lv_obj_t * obj) {
     lv_anim_delete(obj, NULL);
     lv_anim_t a;
     lv_anim_init(&a);
     lv_anim_set_var(&a, obj);
-    lv_anim_set_values(&a, 255, 0);
+    lv_anim_set_values(&a, 255, 30);
     lv_anim_set_duration(&a, 600);
     lv_anim_set_playback_duration(&a, 600);
     lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
@@ -31,10 +41,79 @@ static void start_blink(lv_obj_t * obj) {
     lv_anim_start(&a);
 }
 
+/**
+ * @brief 通用：停止闪烁并恢复常亮
+ */
 static void stop_blink(lv_obj_t * obj) {
     lv_anim_delete(obj, NULL);
     lv_obj_set_style_opa(obj, 255, 0);
 }
+
+/**
+ * @brief 【核心逻辑】高度通用化的图标状态机
+ * 
+ * @param cont   图标的容器对象
+ * @param label  图标的文本对象（Label）
+ * @param state  目标视觉状态
+ * @param color  默认的颜色（如 WiFi 为蓝色，蓝牙为青色）
+ */
+static void set_icon_status(lv_obj_t * cont, lv_obj_t * label, icon_visual_state_t state, lv_color_t color) {
+    if(!cont || !label) return;
+
+    switch(state) {
+        case ICON_STATE_HIDDEN:
+            lv_obj_add_flag(cont, LV_OBJ_FLAG_HIDDEN);
+            stop_blink(label);
+            break;
+
+        case ICON_STATE_CONNECTING:
+            lv_obj_remove_flag(cont, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_text_color(label, color, 0);
+            start_blink(label);
+            break;
+
+        case ICON_STATE_CONNECTED:
+            lv_obj_remove_flag(cont, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_text_color(label, color, 0);
+            stop_blink(label);
+            break;
+
+        case ICON_STATE_ERROR:
+            lv_obj_remove_flag(cont, LV_OBJ_FLAG_HIDDEN);
+            // 错误状态统一使用全局红色
+            lv_obj_set_style_text_color(label, lv_palette_main(LV_PALETTE_RED), 0);
+            start_blink(label);
+            break;
+    }
+}
+
+/* --- 对外暴露的业务接口 (保持 ui_entry.h 的简洁) --- */
+
+void ui_status_bar_set_wifi_conn(bool connected) {
+    set_icon_status(wifi_icon_cont, wifi_icon_label, 
+                   connected ? ICON_STATE_CONNECTED : ICON_STATE_HIDDEN, 
+                   lv_palette_main(LV_PALETTE_BLUE));
+}
+
+void ui_status_bar_set_wifi_connecting(void) {
+    set_icon_status(wifi_icon_cont, wifi_icon_label, ICON_STATE_CONNECTING, lv_palette_main(LV_PALETTE_BLUE));
+}
+
+void ui_status_bar_set_wifi_error(void) {
+    set_icon_status(wifi_icon_cont, wifi_icon_label, ICON_STATE_ERROR, lv_palette_main(LV_PALETTE_BLUE));
+}
+
+void ui_status_bar_set_bt_conn(bool connected) {
+    set_icon_status(bt_icon_cont, bt_icon_label, 
+                   connected ? ICON_STATE_CONNECTED : ICON_STATE_HIDDEN, 
+                   lv_palette_main(LV_PALETTE_CYAN));
+}
+
+void ui_status_bar_set_bt_connecting(void) {
+    set_icon_status(bt_icon_cont, bt_icon_label, ICON_STATE_CONNECTING, lv_palette_main(LV_PALETTE_CYAN));
+}
+
+/* --- 基础布局函数 (保持不变) --- */
 
 static lv_obj_t * create_status_icon_obj(lv_obj_t * parent, const char * symbol, lv_obj_t ** label_out) {     
     lv_obj_t * cont = lv_obj_create(parent);        
@@ -115,50 +194,8 @@ void ui_status_bar_set_visible(bool visible) {
     if(visible) lv_obj_remove_flag(status_bar_obj, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(status_bar_obj, LV_OBJ_FLAG_HIDDEN);
     
-    // --- 核心修复：强制父容器（root_container）重新计算 Flex 布局 ---
     lv_obj_t * root = lv_obj_get_parent(status_bar_obj);
-    if(root) {
-        lv_obj_update_layout(root);
-        // 同时也通知内容区强制刷新
-        lv_obj_t * content = lv_obj_get_child(root, 1);
-        if(content) lv_obj_update_layout(content);
-    }
-}
-
-void ui_status_bar_set_wifi_conn(bool connected) {  
-    if(!wifi_icon_cont) return;
-    stop_blink(wifi_icon_label);
-    if(connected) {
-        lv_obj_remove_flag(wifi_icon_cont, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_style_text_color(wifi_icon_label, lv_palette_main(LV_PALETTE_BLUE), 0);
-    } else {
-        lv_obj_add_flag(wifi_icon_cont, LV_OBJ_FLAG_HIDDEN);
-    }
-}
-
-void ui_status_bar_set_wifi_connecting(void) {
-    if(!wifi_icon_cont) return;
-    lv_obj_remove_flag(wifi_icon_cont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_style_text_color(wifi_icon_label, lv_palette_main(LV_PALETTE_BLUE), 0);
-    start_blink(wifi_icon_label);
-}
-
-void ui_status_bar_set_bt_conn(bool connected) {    
-    if(!bt_icon_cont) return;
-    stop_blink(bt_icon_label);
-    if(connected) {
-        lv_obj_remove_flag(bt_icon_cont, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_style_text_color(bt_icon_label, lv_palette_main(LV_PALETTE_CYAN), 0);
-    } else {
-        lv_obj_add_flag(bt_icon_cont, LV_OBJ_FLAG_HIDDEN);
-    }
-}
-
-void ui_status_bar_set_bt_connecting(void) {
-    if(!bt_icon_cont) return;
-    lv_obj_remove_flag(bt_icon_cont, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_style_text_color(bt_icon_label, lv_palette_main(LV_PALETTE_CYAN), 0);
-    start_blink(bt_icon_label);
+    if(root) lv_obj_update_layout(root);
 }
 
 void ui_status_bar_set_time(const char *time_str) {

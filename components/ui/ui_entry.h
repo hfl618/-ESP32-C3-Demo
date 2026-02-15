@@ -7,11 +7,26 @@
 #define UI_ENTRY_H
 
 #include "lvgl.h"
+#include "sys_msg.h" 
+#include "wifi_service.h" // 引入 wifi_db_t 定义
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* 
+ * --- UI 专用发信代理 ---
+ * 
+ * 优势：
+ * 1. 模块化：UI 页面不需要包含 FreeRTOS 或了解队列句柄。
+ * 2. 零开销：使用 static inline 编译优化，直接展开为内核调用。
+ * 3. 纯净化：保持 UI 文件夹仅作为样式源码。
+ */
+static inline void ui_post_event(int event_id, intptr_t val) {
+    sys_msg_send(MSG_SOURCE_UI, event_id, (void*)val);
+}
 
 typedef enum {
     UI_PAGE_MAIN,
@@ -43,6 +58,8 @@ typedef struct {
     int brightness;
     int volume;
     int font_size_level;
+    wifi_db_t wifi_db; // 缓存的真实 WiFi 列表数据
+    char connected_ssid[32]; // 【镜像】当前已成功连接的热点名字
 } ui_state_t;
 
 ui_state_t * ui_get_state(void);
@@ -66,14 +83,18 @@ void ui_set_app_font_size(int level);
 
 void ui_init(void);
 void ui_change_page(ui_page_t page);
+void ui_back_to_prev(void);
+ui_page_t ui_get_current_page(void);
 
 void ui_status_bar_create(lv_obj_t * parent);
 void ui_status_bar_set_visible(bool visible);
 void ui_battery_set_level(int level);
 void ui_status_bar_set_wifi_conn(bool connected);
 void ui_status_bar_set_wifi_connecting(void);
+void ui_status_bar_set_wifi_error(void);
 void ui_status_bar_set_bt_conn(bool connected);
 void ui_status_bar_set_bt_connecting(void);
+void ui_status_bar_set_bt_error(void);
 void ui_status_bar_set_time(const char *time_str); 
 
 void page_main_init(lv_obj_t * parent);

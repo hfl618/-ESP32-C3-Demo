@@ -4,6 +4,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
+
+extern QueueHandle_t g_sys_msg_queue;
 /* --- 全局消息来源 --- */
 typedef enum {
     MSG_SOURCE_WIFI,
@@ -25,9 +27,11 @@ typedef enum {
     UI_EVT_MAIN_GOTO_SETTINGS,
     UI_EVT_MAIN_WIFI_CONNECT,
     UI_EVT_SET_BACK_TO_MAIN,
+    UI_EVT_SET_BACK_TO_PREV,
     UI_EVT_SET_WIFI_CONFIG,
     UI_EVT_SET_BT_CONFIG,
     UI_EVT_SET_BRIGHTNESS,
+    UI_EVT_SET_VOLUME,
     UI_EVT_SET_SYSTEM_INFO,
 } ui_evt_id_t;
 
@@ -37,5 +41,8 @@ typedef struct {
     int          event; 
     void*        data;
 } sys_msg_t;
+
+/* --- 通用内核函数 --- */
+void sys_msg_send(msg_source_t source, int event, void* data);
 
 #endif
