@@ -139,7 +139,7 @@ void ui_status_bar_create(lv_obj_t * parent) {
     lv_obj_set_style_radius(status_bar_obj, 0, 0);
 
     time_label = lv_label_create(status_bar_obj);  
-    lv_label_set_text(time_label, "12:00"); 
+    lv_label_set_text(time_label, "--:--"); 
     lv_obj_set_style_text_font(time_label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(time_label, lv_color_white(), 0);
     lv_obj_align(time_label, LV_ALIGN_LEFT_MID, 5, 0);

@@ -74,6 +74,18 @@ static void gui_msg_dispatcher(QueueHandle_t queue) {
                         esp_ip4addr_ntoa(&ip_info.ip, state->connected_ip, 16);
                     }
 
+                    // --- [新增] 自动排序逻辑：将当前成功的 WiFi 置顶 ---
+                    if (state->selected_wifi_idx > 0 && state->selected_wifi_idx < state->wifi_db.count) {
+                        wifi_profile_t successful_p = state->wifi_db.profiles[state->selected_wifi_idx];
+                        // 将第 0 位和当前位互换（或整体平移，互换最简单且有效）
+                        state->wifi_db.profiles[state->selected_wifi_idx] = state->wifi_db.profiles[0];
+                        state->wifi_db.profiles[0] = successful_p;
+                        state->selected_wifi_idx = 0;
+                        // 保存到 NVS，下次开机自动秒连此热点
+                        wifi_service_save_db(&state->wifi_db);
+                        ESP_LOGI(TAG, "WiFi DB Reordered: %s is now preferred", successful_p.ssid);
+                    }
+
                     ui_page_t cur = ui_get_current_page();
                     if (cur == UI_PAGE_WIFI || cur == UI_PAGE_WIFI_INFO) {
                         ui_refresh_current_page();
@@ -113,9 +125,14 @@ static void gui_msg_dispatcher(QueueHandle_t queue) {
                         ble_service_off();
                         ui_status_bar_set_wifi_connecting();
                         wifi_service_on();
+                        ui_refresh_current_page(); // 开启时也强制刷新一次，确保开关状态稳固
                     } else {
                         wifi_service_off();
                         ui_status_bar_set_wifi_conn(false);
+                        // --- [新增] 手动关闭时清理状态并刷新页面 ---
+                        memset(state->connected_ssid, 0, sizeof(state->connected_ssid));
+                        memset(state->connected_ip, 0, sizeof(state->connected_ip));
+                        ui_refresh_current_page();
                     }
                 }
                 else if (msg.event == UI_EVT_SET_BT_CONFIG) {
@@ -252,8 +269,16 @@ static void gui_task(void *pvParameters) {
     lv_indev_set_group(indev, g);
 
     ui_init();
+    update_system_clock();
 
     wifi_service_load_db(&(ui_get_state()->wifi_db));
+
+    // --- [新增] 开机自动连接 ---
+    if (ui_get_state()->wifi_db.count > 0) {
+        ui_get_state()->wifi_en = true;
+        ui_status_bar_set_wifi_connecting();
+        wifi_service_on();
+    }
 
     QueueHandle_t sys_queue = wifi_service_get_queue();
     uint32_t last_time_update = 0;

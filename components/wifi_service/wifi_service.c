@@ -49,12 +49,14 @@ void wifi_service_on(void) {
     ble_service_off(); // 确保蓝牙关闭
 
     if (!wifi_started) {
+        ESP_LOGI(TAG, "Starting WiFi RF...");
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
         ESP_ERROR_CHECK(esp_wifi_start());
         esp_wifi_set_ps(WIFI_PS_NONE);
         wifi_started = true;
     }
 
-    // 如果数据库中有配置，则尝试连接第一个（自动重连逻辑）
+    // 如果数据库中有配置，则尝试连接第一个
     if (g_wifi_db.count > 0) {
         wifi_config_t wifi_config = {
             .sta = {
@@ -66,10 +68,10 @@ void wifi_service_on(void) {
 
         ESP_LOGI(TAG, "Auto-connecting to %s...", g_wifi_db.profiles[0].ssid);
         esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-        esp_wifi_set_max_tx_power(34); // 恢复硬件特定功率设置
+        esp_wifi_set_max_tx_power(34); 
         esp_wifi_connect();
     } else {
-        ESP_LOGI(TAG, "WiFi Power On (No profiles stored)");
+        ESP_LOGW(TAG, "WiFi Power On, but no profiles found in DB!");
     }
 }
 
@@ -162,9 +164,25 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
         ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
         is_connected = true; retry_cnt = 0;
         send_sys_msg(MSG_SOURCE_WIFI, WIFI_EVT_GOT_IP);
-        esp_sntp_config_t sntp_config = ESP_NETIF_SNTP_DEFAULT_CONFIG("ntp.aliyun.com");
-        sntp_config.sync_cb = time_sync_notification_cb;
-        esp_netif_sntp_init(&sntp_config);
+        
+        // 检查当前系统时间是否已经有效（年份 > 2020）
+        time_t now;
+        struct tm timeinfo;
+        time(&now);
+        localtime_r(&now, &timeinfo);
+
+        if (timeinfo.tm_year > (2020 - 1900)) {
+            ESP_LOGI(TAG, "Time already valid, skipping SNTP sync.");
+        } else {
+            static bool sntp_inited = false;
+            if (!sntp_inited) {
+                ESP_LOGI(TAG, "Initializing SNTP for the first time...");
+                esp_sntp_config_t sntp_config = ESP_NETIF_SNTP_DEFAULT_CONFIG("ntp.aliyun.com");
+                sntp_config.sync_cb = time_sync_notification_cb;
+                esp_netif_sntp_init(&sntp_config);
+                sntp_inited = true;
+            }
+        }
     }
 }
 
