@@ -1,100 +1,188 @@
-/**
- * @file ui_manager.c
- * @brief 页面总调度器实现
- * 
- * 原理：
- * 1. 采用单页面应用 (SPA) 模式。
- * 2. 状态栏 (Status Bar) 是静态的，一旦创建永不销毁。
- * 3. 内容区 (Content Area) 是动态的，切换页面时先 lv_obj_clean，再调用工厂函数。
- * 4. 统一管理 LVGL 默认组 (Group)，确保编码器操作一致性。
- */
-
 #include "ui_entry.h"
-#include "esp_log.h"
 
-/* 内容区域容器句柄 */
+static lv_obj_t * root_container = NULL;
 static lv_obj_t * content_area = NULL;
-static ui_page_t current_ui_page = UI_PAGE_MAIN;
+static const lv_font_t * current_font = &lv_font_montserrat_12;
 
-/**
- * @brief 获取当前页面枚举
- */
-ui_page_t ui_get_current_page(void) {
-    return current_ui_page;
+extern const lv_image_dsc_t message_ai; 
+
+static lv_obj_t * active_loading_label = NULL;
+static lv_obj_t * active_alert_label = NULL;
+
+static struct {
+    const char * text;
+    const void * icon;
+    uint32_t ms;
+    ui_page_t next;
+    const char * alert_title;
+    ui_alert_type_t alert_type;
+} sys_ctx;
+
+static ui_state_t global_ui_state = { .wifi_en=false, .bt_en=false, .status_bar_en=true, .brightness=80, .volume=50, .font_size_level=1 };
+ui_state_t * ui_get_state(void) { return &global_ui_state; }
+
+static void set_smart_label_text(lv_obj_t * label, const char * text) {
+    if(!label) return;
+    lv_label_set_text(label, text);
+    lv_obj_update_layout(label);
+    if(lv_obj_get_width(label) >= 140) {
+        lv_obj_set_width(label, lv_pct(90));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    } else {
+        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    }
 }
 
-/**
- * @brief 执行页面切换
- * 逻辑：清理旧页面 -> 清理组 -> 加载新页面
- */
-void ui_change_page(ui_page_t page) {
-    if(!content_area) return;
-    
-    // 如果目标页面就是当前页面，则跳过切换，防止闪烁或黑屏
-    if (page == current_ui_page && lv_obj_get_child_count(content_area) > 0) {
-        return;
+const lv_font_t * ui_get_app_font(void) { return current_font; }
+void ui_set_app_font_size(int level) {
+    global_ui_state.font_size_level = level;
+    if(level == 0) current_font = &lv_font_montserrat_10;
+    else if(level == 1) current_font = &lv_font_montserrat_12;
+    else if(level == 2) current_font = &lv_font_montserrat_14;
+}
+
+static void loading_timer_cb(lv_timer_t * t) { ui_change_page(sys_ctx.next); }
+static void internal_page_loading_init(lv_obj_t * p) {
+    lv_obj_set_size(p, lv_pct(100), lv_pct(100));
+    lv_obj_set_flex_flow(p, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(p, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(p, 5, 0);
+    if(!sys_ctx.icon) {
+        lv_obj_t * s = lv_spinner_create(p);
+        lv_obj_set_size(s, 25, 25);
+        lv_obj_set_style_arc_color(s, lv_palette_main(LV_PALETTE_BLUE), LV_PART_INDICATOR);
+    } else {
+        lv_obj_t * img = lv_image_create(p);
+        lv_image_set_src(img, sys_ctx.icon);
     }
-    current_ui_page = page;
-
-    // 1. 核心：清空默认组中的所有对象。
-    // 如果不清理，转动编码器时会尝试聚焦已经消失的旧对象，导致系统奔溃。
-    lv_group_remove_all_objs(lv_group_get_default());
-
-    // 2. 销毁 content_area 下的所有子对象 (自动释放内存)
-    lv_obj_clean(content_area);
-
-    // 3. 根据目标枚举调用对应的工厂函数
-    switch(page) {
-        case UI_PAGE_MAIN:
-            page_main_init(content_area);
-            break;
-        case UI_PAGE_SETTINGS:
-            page_settings_init(content_area);
-            break;
+    active_loading_label = lv_label_create(p);
+    lv_obj_set_style_text_font(active_loading_label, current_font, 0);
+    set_smart_label_text(active_loading_label, sys_ctx.text);
+    if(sys_ctx.ms > 0) {
+        lv_timer_t * timer = lv_timer_create(loading_timer_cb, sys_ctx.ms, NULL);
+        lv_timer_set_repeat_count(timer, 1);
     }
+}
 
-    // 修复编码器：强制聚焦新页面的第一个对象
-    lv_obj_t * first_child = lv_obj_get_child(content_area, 0);
-    if(first_child) {
-        // 如果页面里还有子容器（如 page_main 里的 cont），则聚焦子容器的第一个孩子
-        if(lv_obj_get_child_count(first_child) > 0) {
-            lv_obj_t * target = lv_obj_get_child(first_child, 0);
-            lv_group_focus_obj(target);
-            lv_obj_scroll_to_view(target, LV_ANIM_OFF);
+static void alert_click_cb(lv_event_t * e) { ui_change_page(sys_ctx.next); }
+static void internal_page_alert_init(lv_obj_t * p) {
+    lv_obj_set_size(p, lv_pct(100), lv_pct(100));
+    lv_obj_clear_flag(p, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(p, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(p, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_top(p, 6, 0);
+    lv_obj_set_style_pad_row(p, 4, 0);
+
+    lv_obj_t * h = lv_obj_create(p);
+    lv_obj_set_size(h, lv_pct(95), LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(h, 0, 0);
+    lv_obj_set_style_border_width(h, 0, 0);
+    lv_obj_set_style_pad_all(h, 0, 0);
+    lv_obj_set_flex_flow(h, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(h, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(h, 8, 0);
+
+    if(sys_ctx.icon) {
+        lv_obj_t * img = lv_image_create(h);
+        lv_image_set_src(img, sys_ctx.icon);
+    } else {
+        if(sys_ctx.alert_type == UI_ALERT_TYPE_AI) {
+            // --- 核心：AI 专用头像 ---
+            lv_obj_t * img = lv_image_create(h);
+            lv_image_set_src(img, &message_ai);
         } else {
-            lv_group_focus_obj(first_child);
-            lv_obj_scroll_to_view(first_child, LV_ANIM_OFF);
+            lv_obj_t * i = lv_label_create(h);
+            if(sys_ctx.alert_type == UI_ALERT_TYPE_SUCCESS) {
+                lv_label_set_text(i, LV_SYMBOL_OK);
+                lv_obj_set_style_text_color(i, lv_palette_main(LV_PALETTE_GREEN), 0);
+            } else if(sys_ctx.alert_type == UI_ALERT_TYPE_ERROR) {
+                lv_label_set_text(i, LV_SYMBOL_CLOSE);
+                lv_obj_set_style_text_color(i, lv_palette_main(LV_PALETTE_RED), 0);
+            } else {
+                lv_label_set_text(i, LV_SYMBOL_WARNING);
+                lv_obj_set_style_text_color(i, lv_palette_main(LV_PALETTE_BLUE), 0);
+            }
+            lv_obj_set_style_text_font(i, &lv_font_montserrat_14, 0);
         }
     }
+
+    lv_obj_t * t = lv_label_create(h);
+    lv_label_set_text(t, sys_ctx.alert_title);
+    lv_obj_set_style_text_font(t, current_font, 0);
+    lv_obj_set_style_text_color(t, lv_color_white(), 0);
+
+    active_alert_label = lv_label_create(p);
+    lv_obj_set_style_text_color(active_alert_label, lv_palette_main(LV_PALETTE_GREY), 0);
+    lv_obj_set_style_text_font(active_alert_label, current_font, 0);
+    lv_obj_set_width(active_alert_label, lv_pct(90));
+    set_smart_label_text(active_alert_label, sys_ctx.text);
+
+    lv_obj_add_flag(p, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(p, alert_click_cb, LV_EVENT_CLICKED, NULL);
 }
 
-/**
- * @brief UI 系统初始化入口
- */
+void ui_show_loading(const char * text, const void * icon, uint32_t duration, ui_page_t target) {
+    sys_ctx.text = text; sys_ctx.icon = icon; sys_ctx.ms = duration; sys_ctx.next = target;
+    ui_change_page(UI_PAGE_LOADING);
+}
+void ui_update_loading_text(const char * text) { if(active_loading_label) set_smart_label_text(active_loading_label, text); }
+void ui_finish_loading(ui_page_t target) { ui_change_page(target); }
+void ui_show_alert(const char * title, const char * msg, ui_alert_type_t type, ui_page_t target) {
+    sys_ctx.alert_title = title; sys_ctx.text = msg; sys_ctx.alert_type = type; sys_ctx.next = target; sys_ctx.icon = NULL;
+    ui_change_page(UI_PAGE_ALERT);
+}
+void ui_show_alert_with_icon(const char * title, const char * msg, const void * icon_src, ui_page_t target) {
+    sys_ctx.alert_title = title; sys_ctx.text = msg; sys_ctx.icon = icon_src; sys_ctx.next = target;
+    ui_change_page(UI_PAGE_ALERT);
+}
+void ui_update_alert_text(const char * msg) { if(active_alert_label) set_smart_label_text(active_alert_label, msg); }
+
+void ui_change_page(ui_page_t page) {
+    if(!content_area) return;
+    lv_group_remove_all_objs(lv_group_get_default());
+    lv_obj_clean(content_area);
+    lv_obj_set_scrollbar_mode(content_area, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_style_pad_all(content_area, 0, 0);
+    lv_obj_scroll_to_y(content_area, 0, LV_ANIM_OFF);
+    lv_obj_set_flex_flow(content_area, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content_area, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    active_loading_label = NULL; active_alert_label = NULL;
+    switch(page) {
+        case UI_PAGE_MAIN:      page_main_init(content_area); break;
+        case UI_PAGE_SETTINGS:  page_settings_init(content_area); break;
+        case UI_PAGE_WIFI:      page_wifi_init(content_area); break;
+        case UI_PAGE_WIFI_INFO: page_wifi_info_init(content_area); break;
+        case UI_PAGE_VERSION:   page_version_init(content_area); break;
+        case UI_PAGE_PROVISION: page_provision_init(content_area); break;
+        case UI_PAGE_DISPLAY:   page_display_init(content_area); break;
+        case UI_PAGE_BRIGHTNESS: page_brightness_init(content_area); break;
+        case UI_PAGE_FONTSIZE:   page_fontsize_init(content_area); break;
+        case UI_PAGE_VOLUME:     page_volume_init(content_area); break;
+        case UI_PAGE_LOADING:    internal_page_loading_init(content_area); break;
+        case UI_PAGE_ALERT:      internal_page_alert_init(content_area); break;
+    }
+    lv_obj_t * first = lv_obj_get_child(content_area, 0);
+    if(first) lv_group_focus_obj(lv_obj_get_child_count(first) > 0 ? lv_obj_get_child(first, 0) : first);
+}
+
 void ui_init(void) {
-    lv_obj_t * screen = lv_screen_active();
-    
-    // 设置全局屏幕背景颜色
-    lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
-
-    // A. 构建顶层静态结构：状态栏
-    ui_status_bar_create(screen);
-
-    // B. 构建底层动态结构：全屏页面容器 (高度扣除状态栏后的剩余部分)
-    content_area = lv_obj_create(screen);
-    lv_obj_set_size(content_area, 160, 62);
-    lv_obj_align(content_area, LV_ALIGN_BOTTOM_MID, 0, 0);
-    
-    // 样式重置：必须透明且无边框，否则切换时会有脏视觉残留
+    lv_obj_t * scr = lv_screen_active();
+    lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
+    root_container = lv_obj_create(scr);
+    lv_obj_set_size(root_container, 160, 80);
+    lv_obj_set_style_bg_opa(root_container, 0, 0);
+    lv_obj_set_style_border_width(root_container, 0, 0);
+    lv_obj_set_style_pad_all(root_container, 0, 0);
+    lv_obj_set_style_pad_row(root_container, 0, 0);
+    lv_obj_clear_flag(root_container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(root_container, LV_FLEX_FLOW_COLUMN);
+    ui_status_bar_create(root_container);
+    content_area = lv_obj_create(root_container);
+    lv_obj_set_width(content_area, 160);
+    lv_obj_set_flex_grow(content_area, 1);
     lv_obj_set_style_bg_opa(content_area, 0, 0);
     lv_obj_set_style_border_width(content_area, 0, 0);
     lv_obj_set_style_pad_all(content_area, 0, 0);
-
-    // C. 初始加载主菜单页面
+    lv_obj_set_scrollbar_mode(content_area, LV_SCROLLBAR_MODE_OFF);
     ui_change_page(UI_PAGE_MAIN);
-
-    // D. 模拟系统初始业务状态 (生产环境中应由底层驱动触发)
-    ui_battery_set_level(100);         // 测试：红色低电量
-    //ui_status_bar_set_wifi_conn(true); // 测试：蓝色 WiFi 已连
-    //ui_status_bar_set_bt_conn(false); // 测试：红色蓝牙未连
 }

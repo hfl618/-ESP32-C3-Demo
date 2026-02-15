@@ -16,22 +16,76 @@ extern "C" {
 typedef enum {
     UI_PAGE_MAIN,
     UI_PAGE_SETTINGS,
+    UI_PAGE_WIFI,
+    UI_PAGE_WIFI_INFO,
+    UI_PAGE_VERSION,
+    UI_PAGE_PROVISION,
+    UI_PAGE_DISPLAY,
+    UI_PAGE_BRIGHTNESS,
+    UI_PAGE_FONTSIZE,
+    UI_PAGE_VOLUME,
+    UI_PAGE_LOADING,
+    UI_PAGE_ALERT,
 } ui_page_t;
+
+typedef enum {
+    UI_ALERT_TYPE_INFO,    // 蓝色信息
+    UI_ALERT_TYPE_SUCCESS, // 绿色成功
+    UI_ALERT_TYPE_ERROR,   // 红色错误
+    UI_ALERT_TYPE_AI,      // AI 对话专用 (机器人头像)
+} ui_alert_type_t;
+
+/* --- 全局状态管理 --- */
+typedef struct {
+    bool wifi_en;
+    bool bt_en;
+    bool status_bar_en;
+    int brightness;
+    int volume;
+    int font_size_level;
+} ui_state_t;
+
+ui_state_t * ui_get_state(void);
+
+/* --- 硬件接口 --- */
+void ui_port_set_brightness(int value);
+void ui_port_set_volume(int value);
+void ui_port_set_wifi_power(bool en);
+void ui_port_set_bt_power(bool en);
+
+/* --- 通用模块接口 --- */
+void ui_show_loading(const char * text, const void * icon_src, uint32_t duration, ui_page_t target_page);
+void ui_update_loading_text(const char * text);
+void ui_finish_loading(ui_page_t target_page);
+void ui_show_alert(const char * title, const char * msg, ui_alert_type_t type, ui_page_t target_page);
+void ui_show_alert_with_icon(const char * title, const char * msg, const void * icon_src, ui_page_t target_page);
+void ui_update_alert_text(const char * msg);
+
+const lv_font_t * ui_get_app_font(void);
+void ui_set_app_font_size(int level);
 
 void ui_init(void);
 void ui_change_page(ui_page_t page);
-ui_page_t ui_get_current_page(void);
 
 void ui_status_bar_create(lv_obj_t * parent);
+void ui_status_bar_set_visible(bool visible);
 void ui_battery_set_level(int level);
 void ui_status_bar_set_wifi_conn(bool connected);
+void ui_status_bar_set_wifi_connecting(void);
 void ui_status_bar_set_bt_conn(bool connected);
-
-/* --- 纯净的设置接口：只接收字符串，不处理逻辑 --- */
+void ui_status_bar_set_bt_connecting(void);
 void ui_status_bar_set_time(const char *time_str); 
 
 void page_main_init(lv_obj_t * parent);
 void page_settings_init(lv_obj_t * parent);
+void page_version_init(lv_obj_t * parent);
+void page_provision_init(lv_obj_t * parent);
+void page_display_init(lv_obj_t * parent);
+void page_brightness_init(lv_obj_t * parent);
+void page_fontsize_init(lv_obj_t * parent);
+void page_volume_init(lv_obj_t * parent);
+void page_wifi_init(lv_obj_t * parent);
+void page_wifi_info_init(lv_obj_t * parent);
 
 #ifdef __cplusplus
 } /*extern "C"*/

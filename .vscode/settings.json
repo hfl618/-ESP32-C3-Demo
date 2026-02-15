@@ -14,5 +14,6 @@
     "--query-driver=**",
     "--compile-commands-dir=e:\\1.ESPCode\\hello_world\\build"
   ],
-  "idf.flashType": "UART"
+  "idf.flashType": "UART",
+  "idf.flashBaudRate": "460800"
 }

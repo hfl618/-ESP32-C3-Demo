@@ -124,7 +124,9 @@ static void gui_msg_dispatcher(QueueHandle_t queue) {
                 }
                 break;
             case MSG_SOURCE_UI:
-                if (msg.event == UI_EVT_MAIN_WIFI_CONNECT) wifi_service_connect();
+                if (msg.event == UI_EVT_MAIN_WIFI_CONNECT) {
+                    wifi_service_on(); // 开启 WiFi 会自动内部关闭蓝牙
+                }
                 else if (msg.event == 0xFF) { // 处理返回主页的消息
                     ESP_LOGI(TAG, "Async executing: ui_change_page(UI_PAGE_MAIN)");
                     ui_change_page(UI_PAGE_MAIN);
@@ -165,10 +167,17 @@ static void gui_task(void *pvParameters) {
         gui_msg_dispatcher(sys_queue); 
         lv_timer_handler();            
         
-        // 每 30 秒刷一次时钟
-        if (lv_tick_get() - last_time_update > 30000) {
+        // 每 30 秒刷一次时钟，每 10 秒打印一次心跳
+        uint32_t now = lv_tick_get();
+        if (now - last_time_update > 30000) {
             update_system_clock(); 
-            last_time_update = lv_tick_get();
+            last_time_update = now;
+        }
+        
+        static uint32_t last_heartbeat = 0;
+        if (now - last_heartbeat > 10000) {
+            ESP_LOGI(TAG, "GUI Task Alive");
+            last_heartbeat = now;
         }
 
         vTaskDelay(pdMS_TO_TICKS(10));
