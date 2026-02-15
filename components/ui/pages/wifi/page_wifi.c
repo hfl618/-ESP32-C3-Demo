@@ -116,7 +116,7 @@ void page_wifi_init(lv_obj_t * parent) {
     lv_obj_clear_flag(sw_item, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t * lbl = lv_label_create(sw_item);
-    lv_label_set_text(lbl, "WiFi Power");
+    lv_label_set_text(lbl, "WiFi");
     lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
     lv_obj_set_style_text_font(lbl, ui_get_app_font(), 0);
 
