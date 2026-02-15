@@ -16,17 +16,21 @@ static lv_obj_t * lbl_vol_val;
 static void volume_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t * obj = lv_event_get_target(e);
+    ui_state_t * state = ui_get_state();
     
     // 情况 A：滑动条数值改变（由滚轮驱动）
     if(code == LV_EVENT_VALUE_CHANGED) {
         int val = (int)lv_slider_get_value(obj);
         
-        // 1. 更新 UI 内部状态（数值标签）
+        // 1. 更新 UI 内部状态
+        state->volume = val;
+        state->is_dirty = true; // 【新增】标记数据已脏
+        
         char buf[8];
         lv_snprintf(buf, sizeof(buf), "%d%%", val);
         lv_label_set_text(lbl_vol_val, buf);
         
-        // 2. 模块化投递信号：使用专属音量 ID
+        // 2. 模块化投递信号
         ui_post_event(UI_EVT_SET_VOLUME, (intptr_t)val); 
     }
     // 情况 B：点击背景（或容器）

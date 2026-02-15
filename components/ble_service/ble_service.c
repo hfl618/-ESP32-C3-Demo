@@ -9,6 +9,7 @@
 #include "cJSON.h"
 #include "wifi_service.h"
 #include <string.h>
+#include "esp_bt.h"
 
 static const char *TAG = "BLE_SVC";
 static const char *device_name = "ESP32-C3-Config";
@@ -38,8 +39,38 @@ static const struct ble_gatt_svc_def ble_svc_defs[] = {
     {0}
 };
 
+static void ble_app_advertise(void) {
+    struct ble_hs_adv_fields fields = {0};
+    fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
+    fields.name = (uint8_t *)device_name;
+    fields.name_len = strlen(device_name);
+    fields.name_is_complete = 1;
+    ble_gap_adv_set_fields(&fields);
+
+    struct ble_gap_adv_params adv_params = {0};
+    adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
+    adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    
+    // 广播间隔优化：100ms (1单位=0.625ms, 160*0.625=100)
+    // 100ms 是连接稳定性与功耗的最佳平衡点
+    adv_params.itvl_min = 160; 
+    adv_params.itvl_max = 160;
+
+    int rc = ble_gap_adv_start(ble_addr_type, NULL, BLE_HS_FOREVER, &adv_params, ble_gap_event, NULL);
+    if (rc == 0) {
+        ESP_LOGI(TAG, "Advertising (100ms interval)...");
+        sys_msg_send(MSG_SOURCE_BT, BT_EVT_ADVERTISING, NULL);
+    }
+}
+
 static void ble_on_sync(void) {
     ble_hs_id_infer_auto(0, &ble_addr_type);
+    
+    // 调整功率：使用 P6 (+6dBm)，接近 WiFi 的限制，提供更好的连接稳定性
+    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, ESP_PWR_LVL_P6);
+    esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, ESP_PWR_LVL_P6);
+    
+    ble_app_advertise();
 }
 
 static void ble_host_task(void *param) {
@@ -47,9 +78,38 @@ static void ble_host_task(void *param) {
     nimble_port_freertos_deinit();
 }
 
+static int ble_gap_event(struct ble_gap_event *event, void *arg) {
+    switch (event->type) {
+        case BLE_GAP_EVENT_CONNECT:
+            if (event->connect.status == 0) {
+                ESP_LOGI(TAG, "GATT Connected!");
+                sys_msg_send(MSG_SOURCE_BT, BT_EVT_CONNECTED, NULL);
+            } else {
+                ESP_LOGE(TAG, "Connect failed; status=%d", event->connect.status);
+                ble_app_advertise();
+            }
+            break;
+        case BLE_GAP_EVENT_DISCONNECT:
+            ESP_LOGI(TAG, "GATT Disconnected");
+            sys_msg_send(MSG_SOURCE_BT, BT_EVT_DISCONNECTED, NULL);
+            ble_app_advertise();
+            break;
+        case BLE_GAP_EVENT_MTU:
+            ESP_LOGI(TAG, "MTU size: %d", event->mtu.value);
+            break;
+    }
+    return 0;
+}
+
 void ble_service_on(void) {
-    if (ble_host_task_handle) return;
+    if (ble_host_task_handle) {
+        ble_app_advertise();
+        return;
+    }
+    
     wifi_service_off();
+    vTaskDelay(pdMS_TO_TICKS(300)); 
+    
     if (!ble_initialized) {
         nimble_port_init();
         ble_hs_cfg.sync_cb = ble_on_sync;
@@ -61,17 +121,9 @@ void ble_service_on(void) {
         ble_gatts_add_svcs(ble_svc_defs);
         ble_initialized = true;
     }
-    struct ble_hs_adv_fields fields = {0};
-    fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
-    fields.name = (uint8_t *)device_name;
-    fields.name_len = strlen(device_name);
-    fields.name_is_complete = 1;
-    ble_gap_adv_set_fields(&fields);
-    struct ble_gap_adv_params adv_params = {0};
-    adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
-    adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-    ble_gap_adv_start(ble_addr_type, NULL, BLE_HS_FOREVER, &adv_params, ble_gap_event, NULL);
-    xTaskCreate(ble_host_task, "ble_host", 3072, NULL, 2, &ble_host_task_handle);
+    
+    // 提升堆栈和优先级，确保连接过程不被干扰
+    xTaskCreate(ble_host_task, "ble_host", 4096, NULL, 5, &ble_host_task_handle);
 }
 
 void ble_service_off(void) {
@@ -83,8 +135,6 @@ void ble_service_off(void) {
     ble_initialized = false;
     nimble_port_deinit();
 }
-
-static int ble_gap_event(struct ble_gap_event *event, void *arg) { return 0; }
 
 static int ble_svc_gatt_handler(uint16_t conn_handle, uint16_t attr_handle, struct ble_gatt_access_ctxt *ctxt, void *arg) {
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {

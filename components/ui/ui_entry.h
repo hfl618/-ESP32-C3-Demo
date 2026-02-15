@@ -57,11 +57,14 @@ typedef struct {
     bool status_bar_en;
     int brightness;
     int volume;
+    int saved_brightness;    // 【新增】记录已保存的亮度，用于差值比较
+    int saved_volume;        // 【新增】记录已保存的音量，用于差值比较
     int font_size_level;
     wifi_db_t wifi_db; // 缓存的真实 WiFi 列表数据
     char connected_ssid[32]; // 【镜像】当前已成功连接的热点名字
     char connected_ip[16];   // 【新增】镜像当前连接的 IP
     int selected_wifi_idx;   // 【新增】当前正在查看或尝试连接的 WiFi 索引
+    bool is_dirty;           // 【新增】脏标记：若为 true 表示亮度和音量已改动但尚未存入 Flash
 } ui_state_t;
 
 ui_state_t * ui_get_state(void);

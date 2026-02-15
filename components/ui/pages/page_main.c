@@ -34,7 +34,7 @@ static void start_ai_simulation(lv_timer_t * t) {
     // 关键：使用自定义的机器人图标 (message_ai) 代替默认符号
     ui_show_alert_with_icon("AI Assistant", "", &message_ai, UI_PAGE_MAIN);
 
-    lv_timer_t * stream_t = lv_timer_create(streaming_timer_cb, 50, NULL);
+    lv_timer_create(streaming_timer_cb, 50, NULL);
 }
 
 static void item_event_cb(lv_event_t * e) {

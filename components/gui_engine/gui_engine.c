@@ -17,6 +17,7 @@
 #include "esp_wifi.h"
 #include "ble_service.h"
 #include "sys_msg.h"
+#include "storage_manager.h" 
 #include "driver/gpio.h"
 #include <time.h>
 
@@ -114,6 +115,18 @@ static void gui_msg_dispatcher(QueueHandle_t queue) {
                 }
                 break;
 
+            case MSG_SOURCE_BT:
+                if (msg.event == BT_EVT_ADVERTISING) {
+                    ui_status_bar_set_bt_connecting();
+                }
+                else if (msg.event == BT_EVT_CONNECTED) {
+                    ui_status_bar_set_bt_conn(true);
+                }
+                else if (msg.event == BT_EVT_DISCONNECTED) {
+                    ui_status_bar_set_bt_conn(false);
+                }
+                break;
+
             case MSG_SOURCE_UI:
                 if (msg.event == UI_EVT_MAIN_WIFI_CONNECT) {
                     bool en = (bool)(intptr_t)msg.data;
@@ -167,6 +180,14 @@ static void gui_msg_dispatcher(QueueHandle_t queue) {
                 }
                 else if (msg.event == UI_EVT_SET_BACK_TO_PREV) {
                     ui_back_to_prev();
+                }
+                else if (msg.event == UI_EVT_SAVE_SETTINGS) {
+                    storage_set_int("brightness", state->brightness);
+                    storage_set_int("volume", state->volume);
+                    // 保存成功后，同步备份值，确保下次比较准确
+                    state->saved_brightness = state->brightness;
+                    state->saved_volume = state->volume;
+                    ESP_LOGI(TAG, "Settings synced to Flash.");
                 }
                 else if (msg.event == UI_EVT_WIFI_CONNECT_BY_IDX) {
                     int idx = (int)(intptr_t)msg.data;
@@ -271,7 +292,15 @@ static void gui_task(void *pvParameters) {
     ui_init();
     update_system_clock();
 
-    wifi_service_load_db(&(ui_get_state()->wifi_db));
+    // 从 NVS 加载初始设置
+    ui_state_t * state_ptr = ui_get_state();
+    state_ptr->brightness = storage_get_int("brightness", 80);
+    state_ptr->volume = storage_get_int("volume", 50);
+    // 初始化备份值，防止开机就触发保存
+    state_ptr->saved_brightness = state_ptr->brightness;
+    state_ptr->saved_volume = state_ptr->volume;
+
+    wifi_service_load_db(&(state_ptr->wifi_db));
 
     // --- [新增] 开机自动连接 ---
     if (ui_get_state()->wifi_db.count > 0) {

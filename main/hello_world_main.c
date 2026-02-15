@@ -10,14 +10,15 @@
 
 #include "freertos/queue.h"
 #include "sys_msg.h"
+#include "storage_manager.h"
 
 static const char *TAG = "main";
-
-/* --- 全局邮局实体定义 --- */
-QueueHandle_t g_sys_msg_queue = NULL;
-
+// ...
 void app_main(void) {
     ESP_LOGI(TAG, "System Startup. Version: %s", SOFTWARE_VERSION);
+
+    // 0. 启动存储基础设施 (Flash 第一优先级)
+    storage_init();
 
     // 1. 邮局开门 (必须在所有服务启动前)
     g_sys_msg_queue = xQueueCreate(10, sizeof(sys_msg_t));

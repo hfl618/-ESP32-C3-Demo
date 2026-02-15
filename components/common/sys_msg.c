@@ -12,6 +12,8 @@
 
 static const char *TAG = "SYS_MSG";
 
+QueueHandle_t g_sys_msg_queue = NULL;
+
 /**
  * @brief 全局消息投递函数
  * 

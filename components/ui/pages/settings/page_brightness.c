@@ -16,9 +16,11 @@ static lv_obj_t * lbl_val;
 static void slider_event_cb(lv_event_t * e) {
     lv_obj_t * slider = lv_event_get_target(e);
     int v = (int)lv_slider_get_value(slider);
+    ui_state_t * state = ui_get_state();
     
     // 1. 更新 UI 内部状态
-    ui_get_state()->brightness = v;
+    state->brightness = v;
+    state->is_dirty = true; // 【新增】标记数据已脏，需要保存
     char buf[8];
     lv_snprintf(buf, sizeof(buf), "%d%%", v);
     lv_label_set_text(lbl_val, buf);

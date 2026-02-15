@@ -4,6 +4,7 @@
  */
 
 #include "ui_entry.h"
+#include "esp_log.h"
 
 static lv_obj_t * root_container = NULL;
 static lv_obj_t * content_area = NULL;
@@ -223,6 +224,19 @@ void ui_change_page(ui_page_t page) {
  */
 void ui_back_to_prev(void) {
     if (stack_ptr > 0) {
+        ui_state_t *state = ui_get_state();
+
+        // 脏检查保存逻辑：不仅要用户动过(is_dirty)，还要值真的变了才存
+        if (state->is_dirty) {
+            if (state->brightness != state->saved_brightness || state->volume != state->saved_volume) {
+                ui_post_event(UI_EVT_SAVE_SETTINGS, 0); 
+                ESP_LOGI("UI_MGR", "Values changed: triggering NVS save.");
+            } else {
+                ESP_LOGI("UI_MGR", "Values restored to original: skipping save.");
+            }
+            state->is_dirty = false;
+        }
+
         stack_ptr--; // 弹出当前页，回到上一个记录点
         _ui_execute_page_change(page_stack[stack_ptr]);
     }

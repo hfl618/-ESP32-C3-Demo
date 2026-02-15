@@ -37,7 +37,6 @@ void wifi_service_print_stored_configs(void) {
             ESP_LOGI(TAG, "======= Stored WiFi Database =======");
             for (int i = 0; i < temp_db.count; i++) {
                 ESP_LOGI(TAG, "[%d] SSID: %s", i, temp_db.profiles[i].ssid);
-                debug_print_hex("     HEX_PASS", temp_db.profiles[i].password);
             }
             ESP_LOGI(TAG, "====================================");
         }
@@ -46,7 +45,7 @@ void wifi_service_print_stored_configs(void) {
 }
 
 void wifi_service_on(void) {
-    ble_service_off(); // 确保蓝牙关闭
+    ble_service_off(); 
 
     if (!wifi_started) {
         ESP_LOGI(TAG, "Starting WiFi RF...");
@@ -56,7 +55,6 @@ void wifi_service_on(void) {
         wifi_started = true;
     }
 
-    // 如果数据库中有配置，则尝试连接第一个
     if (g_wifi_db.count > 0) {
         wifi_config_t wifi_config = {
             .sta = {
@@ -102,7 +100,7 @@ void wifi_service_connect_to(const char *ssid, const char *password) {
     ESP_LOGI(TAG, "Connecting to %s...", ssid);
     esp_wifi_disconnect(); 
     esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-    esp_wifi_set_max_tx_power(34); // 恢复硬件特定功率设置
+    esp_wifi_set_max_tx_power(34); 
     esp_wifi_connect();
 }
 
@@ -137,7 +135,6 @@ esp_err_t wifi_service_load_db(wifi_db_t *db) {
 
 static void time_sync_notification_cb(struct timeval *tv) {
     ESP_LOGI(TAG, "Time Synced!");
-    // 发送对时成功信号，触发 UI 立即刷新时间显示
     send_sys_msg(MSG_SOURCE_WIFI, WIFI_EVT_TIME_SYNCED);
 }
 
@@ -154,9 +151,8 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
             retry_cnt++;
             esp_wifi_connect();
         } else if (retry_cnt >= 5) {
-            // 达到重试上限，发送彻底失败信号
             send_sys_msg(MSG_SOURCE_WIFI, WIFI_EVT_DISCONNECTED);
-            retry_cnt = 0; // 重置计数
+            retry_cnt = 0;
         }
     } 
     else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
@@ -165,7 +161,6 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
         is_connected = true; retry_cnt = 0;
         send_sys_msg(MSG_SOURCE_WIFI, WIFI_EVT_GOT_IP);
         
-        // 检查当前系统时间是否已经有效（年份 > 2020）
         time_t now;
         struct tm timeinfo;
         time(&now);
@@ -187,13 +182,9 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 }
 
 esp_err_t wifi_service_init(void) {
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
     wifi_service_load_db(&g_wifi_db);
     wifi_service_print_stored_configs();
+
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
